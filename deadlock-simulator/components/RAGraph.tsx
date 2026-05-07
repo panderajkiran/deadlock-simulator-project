@@ -1,49 +1,89 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import useSimulatorStore from "@/store/simulatorStore";
 import { buildRAG, detectCycles } from "@/lib/ragDetect";
 import { computeNeed } from "@/lib/banker";
 
 export default function RAGraph() {
+  const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const store = useSimulatorStore();
   const { config, result } = store;
+  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
   useEffect(() => {
-    if (!svgRef.current) return;
+    const handleResize = () => {
+      if (containerRef.current) {
+        setDimensions({
+          width: containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight,
+        });
+      }
+    };
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (!svgRef.current || !containerRef.current) return;
 
     const { allocation, max } = config;
     const need = computeNeed(max, allocation);
     const { nodes, edges } = buildRAG(allocation, need);
     const cycleNodes = detectCycles(nodes, edges);
 
-    // Set dimensions
-    const width = 800;
-    const height = 400;
+    const { width, height } = dimensions;
+    const radius = 25;
 
     // Clear previous
     d3.select(svgRef.current).selectAll("*").remove();
 
-    // Create SVG
     const svg = d3
       .select(svgRef.current)
-      .attr("width", width)
-      .attr("height", height);
+      .attr("width", "100%")
+      .attr("height", "100%")
+      .attr("viewBox", `0 0 ${width} ${height}`);
 
-    // Create simulation
+    // Definitions for markers
+    const defs = svg.append("defs");
+
+    // Allocation arrow (blue)
+    defs.append("marker")
+      .attr("id", "arrow-allocation")
+      .attr("viewBox", "0 -5 10 10")
+      .attr("refX", 32)
+      .attr("refY", 0)
+      .attr("markerWidth", 8)
+      .attr("markerHeight", 8)
+      .attr("orient", "auto")
+      .append("path")
+      .attr("d", "M0,-5L10,0L0,5")
+      .attr("fill", "#60a5fa");
+
+    // Request arrow (orange)
+    defs.append("marker")
+      .attr("id", "arrow-request")
+      .attr("viewBox", "0 -5 10 10")
+      .attr("refX", 32)
+      .attr("refY", 0)
+      .attr("markerWidth", 8)
+      .attr("markerHeight", 8)
+      .attr("orient", "auto")
+      .append("path")
+      .attr("d", "M0,-5L10,0L0,5")
+      .attr("fill", "#fb923c");
+
+    // Create simulation with boundary constraints
     const simulation = d3
       .forceSimulation(nodes as any)
-      .force(
-        "link",
-        d3
-          .forceLink(edges as any)
-          .id((d: any) => d.id)
-          .distance(100),
-      )
-      .force("charge", d3.forceManyBody().strength(-200))
-      .force("center", d3.forceCenter(width / 2, height / 2));
+      .force("link", d3.forceLink(edges as any).id((d: any) => d.id).distance(120))
+      .force("charge", d3.forceManyBody().strength(-400))
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("collision", d3.forceCollide().radius(radius * 2));
 
     // Draw links
     const link = svg
@@ -52,89 +92,57 @@ export default function RAGraph() {
       .data(edges)
       .enter()
       .append("line")
-      .attr("stroke", (d: any) =>
-        d.type === "allocation" ? "#3b82f6" : "#f97316",
-      )
-      .attr("stroke-width", 2)
-      .attr("marker-end", (d: any) =>
-        d.type === "allocation" ? "url(#arrowblue)" : "url(#arroworange)",
-      )
-      .attr("stroke-dasharray", (d: any) =>
-        d.type === "request" ? "5,5" : "0",
-      );
+      .attr("stroke", (d: any) => d.type === "allocation" ? "#60a5fa" : "#fb923c")
+      .attr("stroke-width", 2.5)
+      .attr("marker-end", (d: any) => `url(#arrow-${d.type})`)
+      .attr("stroke-dasharray", (d: any) => d.type === "request" ? "6,4" : "none")
+      .attr("opacity", 0.8);
 
     // Draw nodes
-    const node = svg
+    const nodeGroup = svg
       .append("g")
-      .selectAll("circle")
+      .selectAll("g")
       .data(nodes as any)
       .enter()
-      .append("circle")
-      .attr("r", (d: any) => (d.type === "process" ? 25 : 20))
-      .attr("fill", (d: any) =>
-        d.type === "process"
-          ? cycleNodes.includes(d.id)
-            ? "#ef4444"
-            : "#3b82f6"
-          : "#f97316",
-      )
-      .attr("stroke", "#fff")
-      .attr("stroke-width", 2)
+      .append("g")
       .call(drag(simulation) as any);
 
-    // Draw labels
-    const labels = svg
-      .append("g")
-      .selectAll("text")
-      .data(nodes as any)
-      .enter()
-      .append("text")
+    nodeGroup.append("circle")
+      .attr("r", (d: any) => d.type === "process" ? radius : radius * 0.8)
+      .attr("fill", (d: any) => {
+        if (d.type === "process") {
+          return cycleNodes.includes(d.id) ? "#ef4444" : "#3b82f6";
+        }
+        return "#f59e0b";
+      })
+      .attr("stroke", "#fff")
+      .attr("stroke-width", 2)
+      .attr("filter", "drop-shadow(0 4px 3px rgb(0 0 0 / 0.1))");
+
+    nodeGroup.append("text")
       .text((d: any) => d.id)
       .attr("text-anchor", "middle")
       .attr("dy", ".3em")
       .attr("font-weight", "bold")
-      .attr("font-size", "12px")
-      .attr("pointer-events", "none")
-      .attr("fill", "#fff");
+      .attr("font-size", "14px")
+      .attr("fill", "#fff")
+      .attr("pointer-events", "none");
 
-    // Add arrowheads
-    svg
-      .append("defs")
-      .append("marker")
-      .attr("id", "arrowblue")
-      .attr("markerWidth", 10)
-      .attr("markerHeight", 10)
-      .attr("refX", 28)
-      .attr("refY", 3)
-      .attr("orient", "auto")
-      .append("polygon")
-      .attr("points", "0 0, 10 3, 0 6")
-      .attr("fill", "#3b82f6");
-
-    svg
-      .append("defs")
-      .append("marker")
-      .attr("id", "arroworange")
-      .attr("markerWidth", 10)
-      .attr("markerHeight", 10)
-      .attr("refX", 28)
-      .attr("refY", 3)
-      .attr("orient", "auto")
-      .append("polygon")
-      .attr("points", "0 0, 10 3, 0 6")
-      .attr("fill", "#f97316");
-
-    // Update on simulation tick
+    // Update on simulation tick with boundary constraints
     simulation.on("tick", () => {
+      // Constrain nodes within box
+      nodes.forEach((d: any) => {
+        d.x = Math.max(radius, Math.min(width - radius, d.x));
+        d.y = Math.max(radius, Math.min(height - radius, d.y));
+      });
+
       link
         .attr("x1", (d: any) => d.source.x)
         .attr("y1", (d: any) => d.source.y)
         .attr("x2", (d: any) => d.target.x)
         .attr("y2", (d: any) => d.target.y);
 
-      node.attr("cx", (d: any) => d.x).attr("cy", (d: any) => d.y);
-
-      labels.attr("x", (d: any) => d.x).attr("y", (d: any) => d.y);
+      nodeGroup.attr("transform", (d: any) => `translate(${d.x},${d.y})`);
     });
 
     function drag(simulation: any) {
@@ -143,59 +151,56 @@ export default function RAGraph() {
         d.fx = d.x;
         d.fy = d.y;
       }
-
       function dragged(event: any, d: any) {
         d.fx = event.x;
         d.fy = event.y;
       }
-
       function dragended(event: any, d: any) {
         if (!event.active) simulation.alphaTarget(0);
         d.fx = null;
         d.fy = null;
       }
-
-      return d3
-        .drag()
-        .on("start", dragstarted)
-        .on("drag", dragged)
-        .on("end", dragended);
+      return d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended);
     }
-  }, [config]);
+  }, [config, dimensions]);
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-8">
-      <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-6">
-        Resource Allocation Graph
-      </h2>
-
-      <div className="bg-slate-50 dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700 mb-6 overflow-x-auto">
-        <svg ref={svgRef} className="mx-auto" />
+    <div className="flex flex-col h-full bg-[#0f172a] rounded-xl shadow-2xl border border-slate-700 overflow-hidden">
+      <div className="px-6 py-4 bg-slate-800/50 border-b border-slate-700 flex justify-between items-center">
+        <h2 className="text-xl font-bold text-white tracking-tight">
+          Resource Allocation Graph
+        </h2>
+        <div className="flex gap-4 text-xs">
+           <div className="flex items-center gap-1.5">
+             <div className="w-3 h-3 rounded-full bg-[#3b82f6]"></div>
+             <span className="text-slate-300">Process</span>
+           </div>
+           <div className="flex items-center gap-1.5">
+             <div className="w-3 h-3 rounded bg-[#f59e0b]"></div>
+             <span className="text-slate-300">Resource</span>
+           </div>
+           <div className="flex items-center gap-1.5">
+             <div className="w-3 h-3 rounded-full bg-[#ef4444] animate-pulse"></div>
+             <span className="text-red-400 font-medium">Deadlock</span>
+           </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 text-sm">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-1 bg-blue-500"></div>
-          <span className="text-slate-700 dark:text-slate-300">
-            Solid blue: Allocation
-          </span>
+      <div ref={containerRef} className="flex-1 relative bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:24px_24px]">
+        <svg ref={svgRef} className="w-full h-full" />
+      </div>
+
+      <div className="px-6 py-3 bg-slate-800/30 border-t border-slate-700 grid grid-cols-2 gap-4 text-[10px] uppercase tracking-wider font-bold">
+        <div className="flex items-center gap-3">
+          <div className="h-0.5 w-8 bg-[#60a5fa]"></div>
+          <span className="text-slate-400">Allocation Edge (R → P)</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div
-            className="w-4 h-1 bg-orange-500"
-            style={{ borderBottom: "2px dashed" }}
-          ></div>
-          <span className="text-slate-700 dark:text-slate-300">
-            Dashed orange: Request
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-red-500"></div>
-          <span className="text-slate-700 dark:text-slate-300">
-            Red process: Deadlocked
-          </span>
+        <div className="flex items-center gap-3">
+          <div className="h-0.5 w-8 bg-[#fb923c] border-b border-dashed"></div>
+          <span className="text-slate-400">Request Edge (P → R)</span>
         </div>
       </div>
     </div>
   );
 }
+

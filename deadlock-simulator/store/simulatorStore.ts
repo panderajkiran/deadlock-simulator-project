@@ -28,6 +28,8 @@ interface SimulatorStore {
   resetStep: () => void;
 
   loadPreset: (preset: "safe" | "deadlock") => void;
+  exportScenario: () => void;
+  importScenario: (json: string) => void;
 }
 
 const initialState: SimulatorState = {
@@ -237,6 +239,34 @@ const useSimulatorStore = create<SimulatorStore>((set) => ({
         result: null,
         currentStep: 0,
       });
+    }
+  },
+
+  exportScenario: () => {
+    const state = useSimulatorStore.getState().config;
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", "deadlock_scenario.json");
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  },
+
+  importScenario: (json) => {
+    try {
+      const parsed = JSON.parse(json) as SimulatorState;
+      if (parsed.processes && parsed.resources && parsed.allocation && parsed.max && parsed.available) {
+        set({
+          config: cloneConfig(parsed),
+          result: null,
+          currentStep: 0,
+        });
+      } else {
+        alert("Invalid scenario file format.");
+      }
+    } catch (e) {
+      alert("Failed to parse scenario file.");
     }
   },
 }));
