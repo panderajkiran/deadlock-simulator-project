@@ -14,18 +14,28 @@ export default function RAGraph() {
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
   useEffect(() => {
-    const handleResize = () => {
-      if (containerRef.current) {
-        setDimensions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight,
-        });
-      }
-    };
+    if (!containerRef.current) return;
 
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        if (entry.target === containerRef.current) {
+          setDimensions({
+            width: entry.contentRect.width,
+            height: entry.contentRect.height,
+          });
+        }
+      }
+    });
+
+    observer.observe(containerRef.current);
+    
+    // Initial size
+    setDimensions({
+      width: containerRef.current.clientWidth,
+      height: containerRef.current.clientHeight,
+    });
+
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -108,7 +118,7 @@ export default function RAGraph() {
       .call(drag(simulation) as any);
 
     nodeGroup.append("circle")
-      .attr("r", (d: any) => d.type === "process" ? radius : radius * 0.8)
+      .attr("r", radius)
       .attr("fill", (d: any) => {
         if (d.type === "process") {
           return cycleNodes.includes(d.id) ? "#ef4444" : "#3b82f6";
@@ -130,10 +140,12 @@ export default function RAGraph() {
 
     // Update on simulation tick with boundary constraints
     simulation.on("tick", () => {
-      // Constrain nodes within box
+      // Constrain nodes within box with some padding
+      const padding = 25; // Additional padding so balls don't touch the edge
+      const bottomPadding = 45; // Extra padding for the bottom edge
       nodes.forEach((d: any) => {
-        d.x = Math.max(radius, Math.min(width - radius, d.x));
-        d.y = Math.max(radius, Math.min(height - radius, d.y));
+        d.x = Math.max(radius + padding, Math.min(width - radius - padding, d.x));
+        d.y = Math.max(radius + padding, Math.min(height - radius - bottomPadding, d.y));
       });
 
       link
