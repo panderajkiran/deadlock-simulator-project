@@ -721,3 +721,5 @@ For questions, issues, or suggestions regarding this project, please refer to th
 ---
 
 _This documentation provides a comprehensive overview of the Deadlock Simulator project, including its architecture, algorithms, and system requirements. It is intended for students, educators, and developers interested in learning about deadlock avoidance mechanisms in operating systems._
+
+manual deploy
