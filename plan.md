@@ -28,6 +28,7 @@ deadlock-simulator/
 ```
 
 ---
+manual deopoy
 
 ## Phase 1 — Project Setup (30 min)
 
